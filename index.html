@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>渋滞シミュレータ - すぐ合流 vs ファスナー合流 比較検証</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- ヘッダー -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="logo-icon">🚦🚗</div>
+        <div>
+          <h1>渋滞シミュレータ <span class="badge">Fair Sync Simulation</span></h1>
+          <p class="subtitle">同一の車が同一車線から発生 ｜ 左：100mから空間ありで合流(空間無は徐行/停止待機) ｜ 右：先頭で交互ファスナー合流 ｜ 追いついた車のみ1回車線変更</p>
+        </div>
+      </div>
+      <div class="header-controls">
+        <button id="btn-play-pause" class="btn btn-primary">
+          <span class="icon" id="play-icon">▶</span> <span id="play-text">シミュレーション開始</span>
+        </button>
+        <button id="btn-reset" class="btn btn-secondary">
+          <span class="icon">↺</span> リセット
+        </button>
+        <div class="speed-selector">
+          <span class="label">速度:</span>
+          <button class="btn-speed" data-speed="1">1x</button>
+          <button class="btn-speed" data-speed="2">2x</button>
+          <button class="btn-speed" data-speed="5">5x</button>
+          <button class="btn-speed active" data-speed="10">10x</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- メインコンテンツ -->
+    <main class="main-content">
+      <!-- 上部: リアルタイムサマリー比較カード -->
+      <section class="summary-cards">
+        <!-- 左側道路カード -->
+        <div class="summary-card early-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <span class="strategy-indicator early-indicator"></span>
+              <h3>【左側】すぐに合流 (Early Merge)</h3>
+            </div>
+            <span class="tag tag-early">手前から左車線へ集中・割り込み</span>
+          </div>
+          <div class="metrics-grid">
+            <div class="metric-item">
+              <span class="metric-label">通過台数 (スループット)</span>
+              <span class="metric-value" id="early-throughput">0 <small>台</small></span>
+              <span class="metric-sub" id="early-flow-rate">0.0 台/分</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">平均通過時間</span>
+              <span class="metric-value" id="early-avg-time">0.0 <small>秒</small></span>
+              <span class="metric-sub" id="early-delay-diff">-</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">最大渋滞長</span>
+              <span class="metric-value text-danger" id="early-jam-length">0 <small>m</small></span>
+              <span class="metric-sub" id="early-jam-cars">渋滞車両: 0台</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">平均走行速度</span>
+              <span class="metric-value" id="early-avg-speed">0.0 <small>km/h</small></span>
+              <span class="metric-sub">制限: 60 km/h</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="vs-divider">
+          <span>VS</span>
+        </div>
+
+        <!-- 右側道路カード -->
+        <div class="summary-card zipper-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <span class="strategy-indicator zipper-indicator"></span>
+              <h3>【右側】ファスナー合流 (Zipper Merge)</h3>
+            </div>
+            <span class="tag tag-zipper">直前まで2車線で走り先頭で交互合流</span>
+          </div>
+          <div class="metrics-grid">
+            <div class="metric-item">
+              <span class="metric-label">通過台数 (スループット)</span>
+              <span class="metric-value" id="zipper-throughput">0 <small>台</small></span>
+              <span class="metric-sub" id="zipper-flow-rate">0.0 台/分</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">平均通過時間</span>
+              <span class="metric-value text-success" id="zipper-avg-time">0.0 <small>秒</small></span>
+              <span class="metric-sub text-success" id="zipper-time-gain">-</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">最大渋滞長</span>
+              <span class="metric-value text-warning" id="zipper-jam-length">0 <small>m</small></span>
+              <span class="metric-sub" id="zipper-jam-cars">渋滞車両: 0台</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">平均走行速度</span>
+              <span class="metric-value text-success" id="zipper-avg-speed">0.0 <small>km/h</small></span>
+              <span class="metric-sub">制限: 60 km/h</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- シミュレーション表示エリア (縦型 左右並列) -->
+      <section class="simulation-section">
+        <div class="sim-view-header">
+          <div class="flow-guide">
+            <span class="flow-badge">⬆️ 上部：公平な同期流入 (2車線)</span>
+            <span class="flow-arrow">➔</span>
+            <span class="flow-badge">⚠️ 中部：合流・1車線規制</span>
+            <span class="flow-arrow">➔</span>
+            <span class="flow-badge">↗️ 下部：2車線復帰・追いつき時1回車線変更</span>
+          </div>
+          <div class="canvas-legend">
+            <span class="legend-item"><span class="dot dot-green"></span> 順調 (>45km/h)</span>
+            <span class="legend-item"><span class="dot dot-yellow"></span> 減速 (25~45km/h)</span>
+            <span class="legend-item"><span class="dot dot-red"></span> 渋滞・急減速 (<25km/h)</span>
+            <span class="legend-item"><span class="dot dot-brake"></span> ブレーキランプ</span>
+          </div>
+        </div>
+
+        <div class="canvas-wrapper" id="canvas-wrapper">
+          <canvas id="simCanvas"></canvas>
+          <div id="tooltip" class="car-tooltip"></div>
+        </div>
+      </section>
+
+      <!-- グラフ ＆ パラメータ コントロール -->
+      <div class="dashboard-grid">
+        <!-- リアルタイムグラフ -->
+        <section class="panel-card chart-panel">
+          <div class="panel-header">
+            <h3>📈 リアルタイム計測グラフ</h3>
+            <div class="chart-tab-group">
+              <button class="chart-tab active" data-chart="throughput">累積通過台数</button>
+              <button class="chart-tab" data-chart="speed">区間平均速度</button>
+              <button class="chart-tab" data-chart="jam">渋滞長</button>
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="statsChart"></canvas>
+          </div>
+          <div class="chart-footer">
+            <span class="chart-legend-line early-line">― 【左】すぐに合流</span>
+            <span class="chart-legend-line zipper-line">― 【右】ファスナー合流</span>
+          </div>
+        </section>
+
+        <!-- パラメータ設定コントロール -->
+        <section class="panel-card settings-panel">
+          <div class="panel-header">
+            <h3>⚙️ シミュレーション設定パラメータ</h3>
+            <button id="btn-default-params" class="btn-link">初期値に戻す</button>
+          </div>
+          <div class="controls-list">
+            <!-- 交通流入量 -->
+            <div class="control-group">
+              <div class="control-label-row">
+                <label for="param-traffic-rate">交通流入量 (公平同期スポーン頻度)</label>
+                <span class="val-display" id="disp-traffic-rate">2,000 台/時</span>
+              </div>
+              <input type="range" id="param-traffic-rate" min="800" max="2800" step="100" value="2000">
+              <div class="range-labels">
+                <span>すいている (800)</span>
+                <span>混雑 (2000)</span>
+                <span>大渋滞 (2800)</span>
+              </div>
+            </div>
+
+            <!-- 車両ごとの速度ブレ -->
+            <div class="control-group">
+              <div class="control-label-row">
+                <label for="param-speed-variance">車両ごとの速度ブレ幅 (基準 60km/h)</label>
+                <span class="val-display" id="disp-speed-variance">±20 %</span>
+              </div>
+              <input type="range" id="param-speed-variance" min="0" max="40" step="5" value="20">
+              <div class="range-labels">
+                <span>ブレなし (0%)</span>
+                <span>標準 (±20%)</span>
+                <span>大バラつき (±40%)</span>
+              </div>
+            </div>
+
+            <!-- 接近時の減速比率 -->
+            <div class="control-group">
+              <div class="control-label-row">
+                <label for="param-decel-ratio">前車接近時の減速係数</label>
+                <span class="val-display" id="disp-decel-ratio">90 %</span>
+              </div>
+              <input type="range" id="param-decel-ratio" min="70" max="98" step="1" value="90">
+              <p class="field-hint">前車に近づくと前車の90%の速度まで減速（離れると再加速）</p>
+            </div>
+
+            <!-- 安全車間時間 -->
+            <div class="control-group">
+              <div class="control-label-row">
+                <label for="param-safe-headway">希望車間時間 (タイムヘッドウェイ)</label>
+                <span class="val-display" id="disp-safe-headway">3.0 秒</span>
+              </div>
+              <input type="range" id="param-safe-headway" min="0.8" max="4.0" step="0.1" value="3.0">
+              <p class="field-hint">速度に応じた車間マージン</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- メカニズム解説 -->
+      <section class="panel-card theory-panel">
+        <div class="panel-header">
+          <h3>💡 シミュレーションの挙動メカニズム</h3>
+        </div>
+        <div class="theory-grid">
+          <div class="theory-item">
+            <h4>1. 左側（100m〜すぐに合流）の挙動</h4>
+            <p>100m地点から合流を試みます。左車線に横方向の空間がある場合のみ合流し、空間がない場合は速度を落として徐行しながら進みます。1車線地点（500m手前）まで合流できなかった場合は<strong>完全に停車して待機</strong>し、左車線に空きができるのを待ちます。</p>
+          </div>
+          <div class="theory-item">
+            <h4>2. 右側（ファスナー合流・交互合流）</h4>
+            <p>直前（450m〜500m）まで2車線をフル活用して走行します。合流する空間がない混雑時でも、合流先頭で<strong>左右の車線から1台ずつ交互に合流（Left ➔ Right ➔ Left ➔ Right）</strong>するため、全体の流れがスムーズに保たれます。</p>
+          </div>
+          <div class="theory-item">
+            <h4>3. 2車線復帰後の追いつき車線変更</h4>
+            <p>1車線区間（500m〜700m）を抜けて2車線に戻った後は、<strong>前走車に追いついて減速した車だけが空いている隣の車線へ1回だけ車線変更</strong>し、車線変更後はその車線を維持してゴールまで直進します。</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <p>渋滞シミュレータ - Fair Synchronized Merge & Dispersion Dynamics in JavaScript</p>
+    </footer>
+  </div>
+
+  <script src="src/car.js"></script>
+  <script src="src/road.js"></script>
+  <script src="src/simulation.js"></script>
+  <script src="src/chart.js"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>
